@@ -30,13 +30,12 @@ button.checked{border-color:var(--hi);color:var(--hi)}
 table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums;font-size:14px}
 th,td{padding:6px 8px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
 th{color:var(--muted);font-weight:600;font-size:12px}
+.tw{overflow-x:auto}
 .ok{color:var(--ok);font-weight:600}.bad{color:var(--bad);font-weight:600}.warn{color:var(--warn)}
 .muted{color:var(--muted);font-size:13px}
 .dec{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:6px}
 .dec button{text-align:left}
 .dec button small{display:block;color:var(--muted);font-size:12px}
-.dec button.right{background:var(--ok);border-color:var(--ok);color:#fff}.dec button.wrong{background:var(--bad);border-color:var(--bad);color:#fff}
-.dec button.right small,.dec button.wrong small{color:#ffffffcc}
 ul{margin:6px 0 0;padding-left:20px}
 footer{font-size:12px;color:var(--muted);margin:16px 0}
 .row{display:flex;flex-wrap:wrap;gap:8px;align-items:baseline;justify-content:space-between}
@@ -64,7 +63,7 @@ footer{font-size:12px;color:var(--muted);margin:16px 0}
   기준: 대한심부전학회 2022 심부전 진료지침 Part IV(진행성·급성 심부전), Figure 4 "Weaning of percutaneous ECMO" —
   Hyun J et al. Korean Circ J 2023;53:452–471 (Int J Heart Fail 2023;5:111–126 동시 게재).
   지침은 "명확한 기준은 아직 확립되지 않았다"고 밝히고 있으며, 이 시뮬레이터는 그 알고리즘을 교육용으로 옮긴 것입니다.
-  수치는 합성값이며 실제 환자 판단에 쓰지 마십시오.
+  수치는 생리 모델이 아닌 합성 관찰값이며, 각 단계의 수치는 관찰 기간 내내 유지된 것으로 가정합니다. 실제 환자 판단에 쓰지 마십시오.
 </footer>
 </main>
 
@@ -72,71 +71,84 @@ footer{font-size:12px;color:var(--muted);margin:16px 0}
 // ---------- 지침 기준 (Figure 4) ----------
 // 저용량 약물: norepinephrine ≤0.03 μg/kg/min, dobutamine ≤5 μg/kg/min
 const LOW = { ne: 0.03, dob: 5 };
+const VASO = { k: 'vaso', label: '약물: 저용량 혈관수축제·강심제', test: c => c.ne <= LOW.ne && c.dob <= LOW.dob, show: c => `NE ${c.ne.toFixed(2)} · dobutamine ${c.dob}`, need: 'NE ≤0.03, dobutamine ≤5' };
 const S1 = [ // 원인 교정 후, 현재 유량에서
-  { k: 'vaso', label: '약물: 저용량 혈관수축제·강심제', test: c => c.ne <= LOW.ne && c.dob <= LOW.dob, show: c => `NE ${c.ne.toFixed(2)} · dobutamine ${c.dob}`, need: 'NE ≤0.03, dobutamine ≤5' },
+  VASO,
   { k: 'map', label: 'MAP', test: v => v.map >= 65, show: v => `${v.map} mmHg`, need: '≥65 mmHg' },
   { k: 'pp', label: '맥압', test: v => v.pp >= 25, show: v => `${v.pp} mmHg`, need: '≥25 mmHg' },
   { k: 'cvp', label: 'CVP', test: v => v.cvp <= 12, show: v => `${v.cvp} mmHg`, need: '≤12 mmHg' },
   { k: 'ox', label: 'SvO₂ 또는 젖산', test: v => v.svo2 > 60 || v.lac < 2, show: v => `SvO₂ ${v.svo2}% · 젖산 ${v.lac.toFixed(1)}`, need: 'SvO₂ >60% 또는 젖산 <2 mmol/L' },
-  { k: 'rvs', label: 'RV S′', test: v => v.rvs > 6, show: v => `${v.rvs.toFixed(1)} cm/s`, need: '>6 cm/s' },
+  { k: 'rvs', label: 'RV S′ (삼첨판륜 외측 조직도플러)', test: v => v.rvs > 6, show: v => `${v.rvs.toFixed(1)} cm/s`, need: '>6 cm/s' },
 ];
 const S2 = [ // 유량 1 L/min에서 1시간 이상
-  { k: 'vaso', label: '약물: 저용량 혈관수축제·강심제', test: c => c.ne <= LOW.ne && c.dob <= LOW.dob, show: c => `NE ${c.ne.toFixed(2)} · dobutamine ${c.dob}`, need: 'NE ≤0.03, dobutamine ≤5' },
+  VASO,
   { k: 'map', label: 'MAP', test: v => v.map >= 65, show: v => `${v.map} mmHg`, need: '≥65 mmHg' },
   { k: 'pp', label: '맥압', test: v => v.pp > 30, show: v => `${v.pp} mmHg`, need: '>30 mmHg' },
   { k: 'lvef', label: 'LVEF', test: v => v.lvef >= 25, show: v => `${v.lvef}%`, need: '≥25%' },
   { k: 'vti', label: 'LVOT VTI', test: v => v.vti > 10, show: v => `${v.vti.toFixed(1)} cm`, need: '>10 cm' },
   { k: 'ox', label: 'SvO₂ 또는 젖산', test: v => v.svo2 > 55 || v.lac < 2, show: v => `SvO₂ ${v.svo2}% · 젖산 ${v.lac.toFixed(1)}`, need: 'SvO₂ >55% 또는 젖산 <2 mmol/L' },
   { k: 'cvp', label: 'CVP', test: v => v.cvp <= 15, show: v => `${v.cvp} mmHg`, need: '≤15 mmHg' },
-  { k: 'ep', label: 'e′ 변화 (유량 감소 후)', test: v => v.ep !== '감소', show: v => v.ep, need: '유지 또는 증가' },
+  { k: 'ep', label: 'e′ 변화 (유량 감소 후)', test: v => ['유지', '증가'].includes(v.ep), show: v => v.ep, need: '유지 또는 증가' },
 ];
 // 확인 버튼 → 드러나는 항목
 const PROBES = {
   1: [{ id: 'pp', name: '동맥 파형 (맥압)', keys: ['pp'] }, { id: 'cvp', name: 'CVP', keys: ['cvp'] },
-      { id: 'abga', name: '혈액가스 (SvO₂·젖산)', keys: ['ox'] }, { id: 'echo', name: '심초음파 (RV S′)', keys: ['rvs'] }],
+      { id: 'abga', name: '혼합정맥혈 SvO₂·젖산', keys: ['ox'] }, { id: 'echo', name: '심초음파 (RV S′)', keys: ['rvs'] }],
   2: [{ id: 'pp', name: '동맥 파형 (맥압)', keys: ['pp'] }, { id: 'cvp', name: 'CVP', keys: ['cvp'] },
-      { id: 'abga', name: '혈액가스 (SvO₂·젖산)', keys: ['ox'] }, { id: 'echo', name: '심초음파 (LVEF·LVOT VTI·e′)', keys: ['lvef', 'vti', 'ep'] }],
+      { id: 'abga', name: '혼합정맥혈 SvO₂·젖산', keys: ['ox'] }, { id: 'echo', name: '심초음파 (LVEF·LVOT VTI·e′)', keys: ['lvef', 'vti', 'ep'] }],
 };
 const ALWAYS = ['vaso', 'map']; // 약물은 증례 설명에, MAP은 모니터에 늘 보인다
+const NAMES = { start: '유량 줄이기 시작', hold: '아직 아님', abort: '감량 중단', wean: '이탈 가능', fail: '이탈 실패', retry: '지원 유지 후 다시 시도', dmcs: 'durable MCS·심장이식 평가' };
 
 // ---------- 증례 생성 ----------
 const U = (a, b) => a + Math.random() * (b - a), I = (a, b) => Math.round(U(a, b)), F = (a, b) => +U(a, b).toFixed(1);
 const pick = a => a[Math.floor(Math.random() * a.length)];
-const CAUSES = ['급성 심근경색 심인성 쇼크 — PCI로 재관류 완료', '전격성 심근염 — 면역억제 치료 중', '심장수술 후 저심박출 — 원인 교정 완료', '난치성 심실빈맥 후 쇼크 — 전극도자 절제 완료'];
+const CAUSES = ['급성 심근경색 심인성 쇼크 — PCI로 재관류', '전격성 심근염 — 치료 후 회복 경과 관찰 중', '심장수술 후 저심박출 — 원인 교정', '난치성 심실빈맥 후 쇼크 — 전극도자 절제'];
 
 function makeCase(type = pick(['ready', 'ready', 'ready', 's1fail', 's1fail', 's2fail', 's2fail', 's2fail', 'long'])) {
-  const c = { type, day: type === 'long' ? I(15, 20) : I(3, 9), cause: pick(CAUSES), flow0: pick([3.0, 3.5, 4.0]), ne: pick([0, 0.02, 0.03]), dob: pick([0, 3, 5]) };
+  const c = { type, cause: pick(CAUSES), flow0: pick([3.0, 3.5, 4.0]), ne: pick([0, 0.02, 0.03]), dob: pick([0, 3, 5]) };
+  // 이탈 실패가 이어진 기간: long만 2주 초과. 다른 유형에도 짧은 실패 병력을 섞어 단서가 되지 않게 한다.
+  if (type === 'long') { c.streak = I(15, 19); c.tries = pick([2, 3]); }
+  else if (Math.random() < .35) { c.streak = I(2, 9); c.tries = pick([1, 2]); }
+  else { c.streak = 0; c.tries = 0; }
+  c.day = c.streak ? c.streak + I(2, 4) : I(3, 9);
+  c.longFail = c.streak > 14;
   c.s1 = { map: I(68, 80), pp: I(26, 36), cvp: I(6, 11), svo2: I(62, 72), lac: F(0.8, 1.8), rvs: F(7, 11) };
   c.s2 = { map: I(68, 80), pp: I(32, 42), lvef: I(28, 40), vti: F(11, 16), svo2: I(58, 68), lac: F(0.8, 1.8), cvp: I(8, 13), ep: pick(['유지', '증가']) };
-  // "또는" 함정: SvO₂는 낮아도 젖산이 정상이면 통과
-  if (Math.random() < .3) { c.s1.svo2 = I(54, 59); c.trapOr = true; }
-  if (type === 's1fail') {
+  // "또는" 조건: 한쪽만 충족해도 통과 (SvO₂만 낮거나, 젖산만 높거나)
+  if (Math.random() < .3) { pick([() => (c.s1.svo2 = I(54, 59)), () => (c.s1.lac = F(2.1, 2.8))])(); c.trapOr = true; }
+  const fail1 = () => {
     c.fail1 = pick(['vaso', 'ox', 'rv', 'pp', 'map']);
     ({ vaso: () => (c.ne = pick([0.06, 0.08, 0.1])),
        ox: () => Object.assign(c.s1, { svo2: I(50, 58), lac: F(2.6, 4.2) }),
        rv: () => Object.assign(c.s1, { rvs: F(4, 5.6), cvp: I(13, 17) }),
        pp: () => (c.s1.pp = I(10, 20)),
        map: () => (c.s1.map = I(57, 63)) })[c.fail1]();
-  }
-  if (type === 's2fail' || type === 'long') {
+  };
+  const fail2 = () => {
     c.fail2 = pick(['lvef', 'vti', 'pp', 'cvp', 'map', 'ep', 'ox']);
     ({ lvef: () => Object.assign(c.s2, { lvef: I(16, 23), vti: F(8, 10) }),
        vti: () => (c.s2.vti = F(6.5, 9.5)),
-       pp: () => (c.s2.pp = I(25, 30)),   // 1단계 기준(≥25)은 넘지만 2단계(>30)는 못 넘는 함정
+       pp: () => (c.s2.pp = I(25, 30)),   // 25–30: 1단계 기준(≥25)은 충족, 2단계 기준(>30)은 미충족
        cvp: () => Object.assign(c.s2, { cvp: I(16, 20) }),
        map: () => Object.assign(c.s2, { map: I(55, 62) }),
        ep: () => (c.s2.ep = '감소'),
        ox: () => Object.assign(c.s2, { svo2: I(48, 54), lac: F(2.4, 3.6) }) })[c.fail2]();
-  }
+  };
+  if (type === 's1fail') fail1();
+  if (type === 's2fail') fail2();
+  if (type === 'long') (Math.random() < .5 ? fail1 : fail2)();
   c.pass1 = S1.every(r => r.test(r.k === 'vaso' ? c : c.s1));
   c.pass2 = S2.every(r => r.test(r.k === 'vaso' ? c : c.s2));
   return c;
 }
 
 // ---------- 상태 ----------
+// stage: 1 현재 유량 평가 · 2 감량 · 3 1 L/min 평가 · 'next' 실패 후 다음 단계 · 'done'
 let cs, stage, flow, minutes, held, seen, log, decisions, score = { ok: 0, n: 0 };
 const $ = s => document.querySelector(s);
-const STAGES = ['1. 현재 유량 평가', '2. 유량 줄이기', '3. 1 L/min 평가'];
+const STAGES = ['1. 현재 유량 평가', '2. 유량 줄이기', '3. 1 L/min 평가', '다음 단계'];
+const IDX = { 1: 0, 2: 1, 3: 2, next: 3, done: 99 };
 
 function newCase(type) {
   cs = makeCase(type);
@@ -145,92 +157,105 @@ function newCase(type) {
   $('#result').hidden = true;
   render();
 }
-const vitals = () => stage >= 3 || (stage === 2 && flow <= 1) ? cs.s2 : stage === 2
-  ? { ...cs.s1, map: Math.round(cs.s1.map + (cs.s2.map - cs.s1.map) * (cs.flow0 - flow) / (cs.flow0 - 1)) } : cs.s1;
+// 지금 화면에서 관찰되는 생리 상태 (종료 후에도 마지막 관찰 상태 그대로)
+function vitals() {
+  if (held >= 60 || flow <= 1) return cs.s2;
+  if (flow === cs.flow0) return cs.s1;
+  return { ...cs.s1, map: Math.round(cs.s1.map + (cs.s2.map - cs.s1.map) * (cs.flow0 - flow) / (cs.flow0 - 1)) };
+}
 
 function render() {
-  $('#vignette').innerHTML = `<b>ECMO ${cs.day}일째</b> · ${cs.cause}. 대퇴 VA-ECMO.<br>
-    약물: norepinephrine <b>${cs.ne.toFixed(2)}</b> μg/kg/min · dobutamine <b>${cs.dob}</b> μg/kg/min
-    ${cs.type === 'long' ? '<br><span class="warn">이전에 이탈을 두 번 시도했으나 실패했습니다.</span>' : ''}`;
+  const hist = cs.tries ? `이탈 시도 이력: <b>${cs.streak}일 전</b>부터 ${cs.tries}회 시도, 모두 실패` : '이탈 시도 이력: 이번이 첫 평가';
+  $('#vignette').innerHTML = `<b>ECMO ${cs.day}일째</b> · ${cs.cause}. 대퇴 VA-ECMO. 가역적 원인은 치료했고, 회복 여부를 평가하는 단계입니다.<br>
+    약물: norepinephrine <b>${cs.ne.toFixed(2)}</b> μg/kg/min · dobutamine <b>${cs.dob}</b> μg/kg/min<br>${hist}`;
   $('#score').textContent = score.n ? `맞힘 ${score.ok}/${score.n}` : '';
   $('#mFlow').textContent = flow.toFixed(1) + ' L/min';
   $('#mMap').textContent = vitals().map;
   $('#mTime').textContent = `${Math.floor(minutes / 60)}시간 ${minutes % 60}분`;
-  $('#stagebar').innerHTML = STAGES.map((s, i) => `<span class="${i + 1 === stage ? 'on' : i + 1 < stage ? 'done' : ''}">${s}</span>`).join('');
+  const si = IDX[stage];
+  $('#stagebar').innerHTML = STAGES.map((s, i) => `<span class="${i === si ? 'on' : i < si ? 'done' : ''}">${s}</span>`).join('');
   renderChecks(); renderAction();
 }
 
 function renderChecks() {
-  const st = stage === 1 ? 1 : 2, rules = st === 1 ? S1 : S2, v = st === 1 ? cs.s1 : vitals();
+  const st = held >= 60 ? 2 : 1, rules = st === 1 ? S1 : S2, v = st === 1 ? cs.s1 : cs.s2;
   const canProbe = stage === 1 || stage === 3;
-  $('#checks').innerHTML = `<h2>${st === 1 ? `현재 유량 ${cs.flow0.toFixed(1)} L/min에서 확인` : '유량 1 L/min에서 확인'}</h2>
+  $('#checks').innerHTML = `<h2>${st === 1 ? `현재 유량 ${cs.flow0.toFixed(1)} L/min에서 확인` : '유량 1 L/min, 1시간 유지 후 확인'}</h2>
     <div class="btns">${PROBES[st].map(p => `<button data-probe="${p.id}" ${!canProbe ? 'disabled' : ''} class="${p.keys.every(k => seen[st].has(k)) ? 'checked' : ''}">${p.name}</button>`).join('')}</div>
-    ${stage === 2 ? '<p class="muted" style="margin:8px 0 0">유량을 1 L/min까지 줄이고 1시간 유지한 뒤 다시 확인할 수 있습니다.</p>' : ''}
-    <table style="margin-top:10px"><thead><tr><th>항목</th><th>값</th></tr></thead><tbody>
+    ${stage === 2 ? '<p class="muted" style="margin:8px 0 0">감량 중에는 모니터의 유량과 MAP을 보며 진행합니다. 1 L/min에서 1시간 유지한 뒤 다시 검사할 수 있습니다.</p>' : ''}
+    <div class="tw"><table style="margin-top:10px"><thead><tr><th>항목</th><th>값</th></tr></thead><tbody>
     ${rules.filter(r => seen[st].has(r.k)).map(r => `<tr><td>${r.label}</td><td>${r.show(r.k === 'vaso' ? cs : v)}</td></tr>`).join('')}
-    </tbody></table>`;
+    </tbody></table></div>`;
 }
 
-function decBtns(list) {
-  return `<div class="dec">${list.map(([id, t, s]) => `<button data-dec="${id}">${t}<small>${s}</small></button>`).join('')}</div>`;
-}
+const decBtns = list => `<div class="dec">${list.map(([id, t, s]) => `<button data-dec="${id}">${t}<small>${s}</small></button>`).join('')}</div>`;
 function renderAction() {
   const el = $('#action');
-  if (stage === 1) el.innerHTML = '<h2>판단</h2>' + decBtns([
-    ['start', '유량 줄이기 시작', '이탈 시험 진행'], ['hold', '아직 아님', '원인 치료·지원 유지 후 재평가'], ['dmcs', 'LVAD·심장이식 평가', '단기 이탈 포기']]);
+  if (stage === 1) el.innerHTML = '<h2>판단</h2>' + decBtns([['start', NAMES.start, '이탈 시험 진행'], ['hold', NAMES.hold, '기준 미충족 · 지금은 감량하지 않음']]);
   else if (stage === 2) {
     const at1 = flow <= 1;
     el.innerHTML = `<h2>유량 줄이기</h2><div class="btns">
       ${[0.5, 1.0, 1.5].map(d => `<button data-down="${d}" ${at1 ? 'disabled' : ''}>−${d.toFixed(1)} L/min · 30분</button>`).join('')}
-      <button data-hold1 ${!at1 || held >= 60 ? 'disabled' : ''}>1 L/min에서 1시간 유지</button></div>
-      <p class="muted" style="margin:8px 0 0">${at1 ? (held >= 60 ? '1시간 유지 완료.' : '1 L/min에 도달했습니다.') : ''}</p>`
-      + (at1 && held >= 60 ? '' : '<p style="margin:8px 0 0"><button data-dec="abort">중단: 유량 다시 올림</button></p>');
-    if (at1 && held >= 60) { stage = 3; render(); }
-  } else if (stage === 3) el.innerHTML = '<h2>판단</h2>' + decBtns([
-    ['wean', '이탈 가능', 'ECMO 제거'], ['fail', '이탈 실패', '유량 다시 올리고 재평가'], ['dmcs', 'LVAD·심장이식 평가', '단기 이탈 포기']]);
+      <button data-hold1 ${!at1 ? 'disabled' : ''}>1 L/min에서 1시간 유지</button></div>
+      <p class="muted" style="margin:8px 0 0">${at1 ? '1 L/min에 도달했습니다.' : ''}</p>
+      <p style="margin:8px 0 0"><button data-dec="abort">감량 중단 · 유량을 다시 올리기로 결정</button></p>`;
+  } else if (stage === 3) el.innerHTML = '<h2>판단</h2>' + decBtns([['wean', NAMES.wean, 'ECMO 제거'], ['fail', NAMES.fail, '유량을 다시 올리기로 결정']]);
+  else if (stage === 'next') el.innerHTML = '<h2>이탈하지 못했습니다. 다음 단계는?</h2>' + decBtns([
+    ['retry', NAMES.retry, '처음 단계로 돌아가 재평가'], ['dmcs', NAMES.dmcs, '단기 이탈 대신 장기 대책 평가']]);
   else el.innerHTML = '<p style="margin:0"><button class="primary" id="next">다음 증례</button></p>';
 }
 
-// ---------- 정답 ----------
-function expected(st) {
-  if (st === 1) return cs.pass1 ? 'start' : cs.type === 'long' ? 'dmcs' : 'hold';
-  if (st === 3) return cs.pass2 ? 'wean' : cs.type === 'long' ? 'dmcs' : 'fail';
-}
-function missed(st) {
-  const k = st === 1 ? 1 : 2;
-  return (k === 1 ? S1 : S2).filter(r => !seen[k].has(r.k)).map(r => r.label);
+// ---------- 채점 ----------
+// 판단은 학습자가 실제로 관찰한 정보로 평가한다.
+// 진행·이탈 승인은 그 단계 기준을 모두 확인해야 하고, 보류·실패는 확인한 기준 중 미충족이 하나 있으면 근거가 된다.
+// (모든 항목 확인은 교육용 채점 규칙이지 지침의 추가 조건이 아니다.)
+const rulesOf = st => (st === 1 ? S1 : S2);
+const valOf = (st, k) => (k === 'vaso' ? cs : st === 1 ? cs.s1 : cs.s2);
+const unseen = st => rulesOf(st).filter(r => !seen[st].has(r.k)).map(r => r.label);
+const seenFailing = st => rulesOf(st).filter(r => seen[st].has(r.k) && !r.test(valOf(st, r.k))).map(r => r.label);
+
+function judge(id) {
+  if (id === 'start') return { exp: cs.pass1 ? 'start' : 'hold', why: unseen(1).length ? `확인하지 않은 항목: ${unseen(1).join(', ')}` : '' };
+  if (id === 'hold') return { exp: cs.pass1 ? 'start' : 'hold', why: seenFailing(1).length ? '' : '미충족 기준을 확인하지 않고 보류함' };
+  if (id === 'wean') return { exp: cs.pass2 ? 'wean' : 'fail', why: unseen(2).length ? `확인하지 않은 항목: ${unseen(2).join(', ')}` : '' };
+  if (id === 'fail') return { exp: cs.pass2 ? 'wean' : 'fail', why: seenFailing(2).length ? '' : '미충족 기준을 확인하지 않고 실패로 판단함' };
+  if (id === 'abort') { // 감량 도중: 지금 모니터의 MAP이 기준 아래로 떨어졌을 때만 중단이 맞다
+    const m = vitals().map;
+    return m < 65 ? { exp: 'abort', why: '' } : { exp: 'continue', why: `MAP ${m} mmHg로 아직 기준을 충족하는데 시험을 끝까지 하지 않고 중단함` };
+  }
+  return { exp: cs.longFail ? 'dmcs' : 'retry', why: '' }; // retry · dmcs
 }
 function decide(id) {
-  const st = stage === 2 ? 3 : stage; // 줄이는 도중 중단 = 3단계 판단
-  if (stage === 2 && id === 'abort') {
-    decisions.push({ st: 3, id: 'fail', exp: expected(3), early: true });
-    return finish();
-  }
-  decisions.push({ st, id, exp: expected(st), miss: missed(st) });
-  if (st === 3 || id !== 'start') return finish();
-  stage = 2;
-  render();
+  const j = judge(id);
+  decisions.push({ at: stage, id, exp: j.exp, why: j.why, ok: id === j.exp && !j.why });
+  if (id === 'start') { stage = 2; return render(); }
+  if (id === 'hold' || id === 'abort' || id === 'fail') { stage = 'next'; return render(); }
+  finish(); // wean · retry · dmcs
 }
 function finish() {
-  const ok = decisions.every(d => d.id === d.exp) && (decisions.at(-1).st === 3 || !cs.pass1);
+  const ok = decisions.every(d => d.ok) && !log.some(x => x.big);
   score.n++; if (ok) score.ok++;
-  stage = 4; render();
-  const crit = (rules, v, st) => `<table><thead><tr><th>${st === 1 ? '1단계: 현재 유량' : '2단계: 1 L/min, 1시간'}</th><th>값</th><th>기준</th><th></th></tr></thead><tbody>
-    ${rules.map(r => { const t = r.test(r.k === 'vaso' ? cs : v); return `<tr><td>${r.label}</td><td>${r.show(r.k === 'vaso' ? cs : v)}</td><td class="muted">${r.need}</td><td class="${t ? 'ok' : 'bad'}">${t ? '충족' : '미충족'}</td></tr>`; }).join('')}</tbody></table>`;
-  const notes = [];
-  decisions.forEach(d => {
-    const name = { start: '유량 줄이기 시작', hold: '아직 아님', dmcs: 'LVAD·이식 평가', wean: '이탈 가능', fail: '이탈 실패' }[d.id];
-    const ename = { start: '유량 줄이기 시작', hold: '아직 아님', dmcs: 'LVAD·이식 평가', wean: '이탈 가능', fail: '이탈 실패' }[d.exp];
-    notes.push(`${STAGES[d.st - 1]}: <b>${name}</b> ${d.id === d.exp ? '<span class="ok">✓</span>' : `<span class="bad">✗ (정답: ${ename})</span>`}`);
-    if (d.miss?.length) notes.push(`<span class="warn">확인하지 않고 판단한 항목: ${d.miss.join(', ')}</span>`);
+  stage = 'done'; render();
+  const notes = decisions.map(d => {
+    const label = d.at === 'next' ? '다음 단계' : STAGES[IDX[d.at]];
+    const expTxt = d.exp === 'continue' ? '감량을 계속해 1 L/min에서 평가' : NAMES[d.exp];
+    const mark = d.id !== d.exp ? `<span class="bad">✗ (정답: ${expTxt})</span>` : d.why ? '<span class="warn">△ 결론은 맞지만 근거 부족</span>' : '<span class="ok">✓</span>';
+    return `${label}: <b>${NAMES[d.id]}</b> ${mark}${d.why ? `<br><span class="warn">${d.why}</span>` : ''}`;
   });
-  log.filter(x => x.big).forEach(x => notes.push(`<span class="warn">유량을 30분에 ${x.d.toFixed(1)} L/min 줄였습니다. 지침은 30분마다 0.5–1.0 L/min씩입니다.</span>`));
-  if (cs.trapOr && cs.s1.lac < 2 && cs.s1.svo2 <= 60) notes.push('SvO₂는 60% 이하였지만 젖산이 2 미만이라 1단계 산소 기준은 충족입니다 ("또는" 조건).');
-  if (cs.fail2 === 'pp') notes.push('맥압이 25–30이면 1단계 기준(≥25)은 넘지만 1 L/min에서의 기준(>30)은 못 넘습니다.');
-  if (cs.type === 'long') notes.push('ECMO 2주 넘게 이탈에 실패하면 지침은 durable MCS(LVAD)나 심장이식을 고려하도록 합니다.');
+  log.filter(x => x.big).forEach(x => notes.push(`<span class="bad">절차: 30분에 ${x.d.toFixed(1)} L/min을 줄였습니다. 지침은 30분마다 0.5–1.0 L/min씩입니다.</span>`));
+  if (cs.trapOr) {
+    if (cs.s1.svo2 <= 60 && cs.s1.lac < 2) notes.push('SvO₂는 60% 이하였지만 젖산이 2 미만이라 1단계 산소 기준은 충족입니다 ("또는" 조건).');
+    if (cs.s1.lac >= 2 && cs.s1.svo2 > 60) notes.push('젖산은 2 이상이었지만 SvO₂가 60%를 넘어 1단계 산소 기준은 충족입니다 ("또는" 조건).');
+  }
+  if (cs.fail2 === 'pp' && held >= 60) notes.push('맥압 25–30은 1단계 기준(≥25)은 충족하지만 1 L/min에서의 기준(>30)은 충족하지 못합니다. 두 기준은 서로 다른 유량에서 적용합니다.');
+  if (decisions.some(d => d.at === 'next')) notes.push(cs.longFail
+    ? `이탈 실패가 ${cs.streak}일, 즉 2주 넘게 이어졌으므로 지침은 durable MCS나 심장이식을 고려하도록 합니다.`
+    : '지침은 이탈에 실패하면 처음 단계로 돌아가 지원을 유지하며 재평가합니다. durable MCS·심장이식은 실패가 2주 넘게 이어질 때 고려합니다.');
+  const crit = st => `<div class="tw"><table><thead><tr><th>${st === 1 ? '1단계: 현재 유량' : '2단계: 1 L/min, 1시간'}</th><th>값</th><th>기준</th><th></th></tr></thead><tbody>
+    ${rulesOf(st).map(r => { const v = valOf(st, r.k), t = r.test(v); return `<tr><td>${r.label}</td><td>${r.show(v)}</td><td class="muted">${r.need}</td><td class="${t ? 'ok' : 'bad'}">${t ? '충족' : '미충족'}</td></tr>`; }).join('')}</tbody></table></div>`;
   const el = $('#result'); el.hidden = false;
   el.innerHTML = `<h2 style="color:var(--${ok ? 'ok' : 'bad'})">${ok ? '정답' : '오답'}</h2><ul>${notes.map(n => `<li>${n}</li>`).join('')}</ul>
-    <div style="margin-top:12px">${crit(S1, cs.s1, 1)}</div>${cs.pass1 ? `<div style="margin-top:12px">${crit(S2, cs.s2, 2)}</div>` : ''}`;
+    <div style="margin-top:12px">${crit(1)}</div>${held >= 60 ? `<div style="margin-top:12px">${crit(2)}</div>` : ''}`;
   $('#next').onclick = () => newCase();
 }
 
@@ -238,28 +263,43 @@ function finish() {
 document.addEventListener('click', e => {
   const b = e.target.closest('button'); if (!b || b.disabled) return;
   if (b.dataset.probe) {
-    const st = stage === 1 ? 1 : 2;
-    PROBES[st].find(p => p.id === b.dataset.probe).keys.forEach(k => seen[st].add(k));
+    const st = held >= 60 ? 2 : 1, keys = PROBES[st].find(p => p.id === b.dataset.probe).keys;
+    if (keys.every(k => seen[st].has(k))) return; // 이미 본 검사는 다시 시간을 쓰지 않는다
+    keys.forEach(k => seen[st].add(k));
     minutes += 10; render();
   } else if (b.dataset.down) {
-    const d = +b.dataset.down; log.push({ d, big: d > 1 });
-    flow = Math.max(1, +(flow - d).toFixed(1)); minutes += 30; render();
-  } else if ('hold1' in b.dataset) { held = 60; minutes += 60; render(); }
+    const before = flow; flow = Math.max(1, +(flow - +b.dataset.down).toFixed(1));
+    const d = +(before - flow).toFixed(1); log.push({ d, big: d > 1 }); // 실제로 줄어든 양으로 판정
+    minutes += 30; render();
+  } else if ('hold1' in b.dataset) { held = 60; minutes += 60; stage = 3; render(); }
   else if (b.dataset.dec) decide(b.dataset.dec);
 });
 
 newCase();
 
-// #test 로 열면 정답 논리 점검
+// #test 로 열면 기준·증례 논리 점검
 if (location.hash === '#test') {
-  const A = (c, m) => console.assert(c, m);
+  let bad = 0; const A = (c, m) => { if (!c) { bad++; console.error('FAIL', m); } };
+  const T = (rules, k) => rules.find(r => r.k === k).test;
+  A(T(S1, 'pp')({ pp: 25 }) && !T(S1, 'pp')({ pp: 24 }), 'S1 맥압 ≥25');
+  A(!T(S2, 'pp')({ pp: 30 }) && T(S2, 'pp')({ pp: 31 }), 'S2 맥압 >30');
+  A(T(S1, 'cvp')({ cvp: 12 }) && !T(S1, 'cvp')({ cvp: 13 }), 'S1 CVP ≤12');
+  A(T(S2, 'cvp')({ cvp: 15 }) && !T(S2, 'cvp')({ cvp: 16 }), 'S2 CVP ≤15');
+  A(!T(S2, 'vti')({ vti: 10 }) && T(S2, 'vti')({ vti: 10.1 }), 'VTI >10');
+  A(T(S2, 'lvef')({ lvef: 25 }) && !T(S2, 'lvef')({ lvef: 24 }), 'LVEF ≥25');
+  A(!T(S1, 'rvs')({ rvs: 6 }) && T(S1, 'rvs')({ rvs: 6.1 }), 'RV S′ >6');
+  A(T(S1, 'map')({ map: 65 }) && !T(S1, 'map')({ map: 64 }), 'MAP ≥65');
+  A(!T(S1, 'ox')({ svo2: 60, lac: 2 }) && T(S1, 'ox')({ svo2: 61, lac: 3 }) && T(S1, 'ox')({ svo2: 50, lac: 1.9 }), 'S1 SvO₂ >60 또는 젖산 <2');
+  A(!T(S2, 'ox')({ svo2: 55, lac: 2 }) && T(S2, 'ox')({ svo2: 56, lac: 3 }), 'S2 SvO₂ >55 또는 젖산 <2');
+  A(VASO.test({ ne: 0.03, dob: 5 }) && !VASO.test({ ne: 0.04, dob: 0 }) && !VASO.test({ ne: 0, dob: 6 }), '저용량 약물');
+  A(!T(S2, 'ep')({ ep: '감소' }) && !T(S2, 'ep')({}) && T(S2, 'ep')({ ep: '유지' }), 'e′');
   for (let i = 0; i < 400; i++) {
-    const r = makeCase('ready'); A(r.pass1 && r.pass2, 'ready는 두 단계 통과');
-    const a = makeCase('s1fail'); A(!a.pass1, 's1fail은 1단계 실패 ' + a.fail1);
-    const b = makeCase('s2fail'); A(b.pass1 && !b.pass2, 's2fail은 1단계 통과·2단계 실패 ' + b.fail2);
-    const l = makeCase('long'); A(l.day >= 15 && l.pass1 && !l.pass2, 'long');
+    const r = makeCase('ready'); A(r.pass1 && r.pass2 && !r.longFail, 'ready');
+    const a = makeCase('s1fail'); A(!a.pass1 && !a.longFail, 's1fail ' + a.fail1);
+    const b = makeCase('s2fail'); A(b.pass1 && !b.pass2 && !b.longFail, 's2fail ' + b.fail2);
+    const l = makeCase('long'); A(l.longFail && !(l.pass1 && l.pass2), 'long');
   }
-  console.log('self-check 완료');
+  console.log(`self-check 완료 · 실패 ${bad}건`);
 }
 </script>
 </body>
