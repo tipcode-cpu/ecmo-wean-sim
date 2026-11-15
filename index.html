@@ -98,7 +98,6 @@ const PROBES = {
       { id: 'abga', name: '혈액가스 (SvO₂·젖산)', keys: ['ox'] }, { id: 'echo', name: '심초음파 (LVEF·LVOT VTI·e′)', keys: ['lvef', 'vti', 'ep'] }],
 };
 const ALWAYS = ['vaso', 'map']; // 약물은 증례 설명에, MAP은 모니터에 늘 보인다
-const REMOVAL_RISKS = { punct: '동맥 천자를 여러 번 시도함', sfa: '동맥 캐뉼라가 표재성 대퇴동맥(SFA)에 있음', paod: '말초동맥폐쇄질환(PAOD) 병력', long: 'ECMO 2주 이상 유지' };
 
 // ---------- 증례 생성 ----------
 const U = (a, b) => a + Math.random() * (b - a), I = (a, b) => Math.round(U(a, b)), F = (a, b) => +U(a, b).toFixed(1);
@@ -106,7 +105,7 @@ const pick = a => a[Math.floor(Math.random() * a.length)];
 const CAUSES = ['급성 심근경색 심인성 쇼크 — PCI로 재관류 완료', '전격성 심근염 — 면역억제 치료 중', '심장수술 후 저심박출 — 원인 교정 완료', '난치성 심실빈맥 후 쇼크 — 전극도자 절제 완료'];
 
 function makeCase(type = pick(['ready', 'ready', 'ready', 's1fail', 's1fail', 's2fail', 's2fail', 's2fail', 'long'])) {
-  const c = { type, day: type === 'long' ? I(15, 20) : I(3, 9), cause: pick(CAUSES), flow0: pick([3.0, 3.5, 4.0]), ne: pick([0, 0.02, 0.03]), dob: pick([0, 3, 5]), risks: [] };
+  const c = { type, day: type === 'long' ? I(15, 20) : I(3, 9), cause: pick(CAUSES), flow0: pick([3.0, 3.5, 4.0]), ne: pick([0, 0.02, 0.03]), dob: pick([0, 3, 5]) };
   c.s1 = { map: I(68, 80), pp: I(26, 36), cvp: I(6, 11), svo2: I(62, 72), lac: F(0.8, 1.8), rvs: F(7, 11) };
   c.s2 = { map: I(68, 80), pp: I(32, 42), lvef: I(28, 40), vti: F(11, 16), svo2: I(58, 68), lac: F(0.8, 1.8), cvp: I(8, 13), ep: pick(['유지', '증가']) };
   // "또는" 함정: SvO₂는 낮아도 젖산이 정상이면 통과
@@ -129,8 +128,6 @@ function makeCase(type = pick(['ready', 'ready', 'ready', 's1fail', 's1fail', 's
        ep: () => (c.s2.ep = '감소'),
        ox: () => Object.assign(c.s2, { svo2: I(48, 54), lac: F(2.4, 3.6) }) })[c.fail2]();
   }
-  if (type === 'long') c.risks.push('long');
-  for (const k of ['punct', 'sfa', 'paod']) if (Math.random() < .2) c.risks.push(k);
   c.pass1 = S1.every(r => r.test(r.k === 'vaso' ? c : c.s1));
   c.pass2 = S2.every(r => r.test(r.k === 'vaso' ? c : c.s2));
   return c;
@@ -139,7 +136,7 @@ function makeCase(type = pick(['ready', 'ready', 'ready', 's1fail', 's1fail', 's
 // ---------- 상태 ----------
 let cs, stage, flow, minutes, held, seen, log, decisions, score = { ok: 0, n: 0 };
 const $ = s => document.querySelector(s);
-const STAGES = ['1. 현재 유량 평가', '2. 유량 줄이기', '3. 1 L/min 평가', '4. 제거 방법'];
+const STAGES = ['1. 현재 유량 평가', '2. 유량 줄이기', '3. 1 L/min 평가'];
 
 function newCase(type) {
   cs = makeCase(type);
@@ -152,11 +149,9 @@ const vitals = () => stage >= 3 || (stage === 2 && flow <= 1) ? cs.s2 : stage ==
   ? { ...cs.s1, map: Math.round(cs.s1.map + (cs.s2.map - cs.s1.map) * (cs.flow0 - flow) / (cs.flow0 - 1)) } : cs.s1;
 
 function render() {
-  const histRisk = cs.risks.filter(k => k !== 'long').map(k => REMOVAL_RISKS[k]);
   $('#vignette').innerHTML = `<b>ECMO ${cs.day}일째</b> · ${cs.cause}. 대퇴 VA-ECMO.<br>
     약물: norepinephrine <b>${cs.ne.toFixed(2)}</b> μg/kg/min · dobutamine <b>${cs.dob}</b> μg/kg/min
-    ${cs.type === 'long' ? '<br><span class="warn">이전에 이탈을 두 번 시도했으나 실패했습니다.</span>' : ''}
-    ${histRisk.length ? `<br><span class="muted">기록: ${histRisk.join(' · ')}</span>` : ''}`;
+    ${cs.type === 'long' ? '<br><span class="warn">이전에 이탈을 두 번 시도했으나 실패했습니다.</span>' : ''}`;
   $('#score').textContent = score.n ? `맞힘 ${score.ok}/${score.n}` : '';
   $('#mFlow').textContent = flow.toFixed(1) + ' L/min';
   $('#mMap').textContent = vitals().map;
@@ -192,9 +187,7 @@ function renderAction() {
       + (at1 && held >= 60 ? '' : '<p style="margin:8px 0 0"><button data-dec="abort">중단: 유량 다시 올림</button></p>');
     if (at1 && held >= 60) { stage = 3; render(); }
   } else if (stage === 3) el.innerHTML = '<h2>판단</h2>' + decBtns([
-    ['wean', '이탈 가능', 'ECMO 제거 단계로'], ['fail', '이탈 실패', '유량 다시 올리고 재평가'], ['dmcs', 'LVAD·심장이식 평가', '단기 이탈 포기']]);
-  else if (stage === 4) el.innerHTML = '<h2>제거 방법</h2>' + decBtns([
-    ['perc', '경피적 제거', '봉합 기구로 경피 제거'], ['surg', '수술적 제거', '혈관외과와 개방 제거·혈관 재건']]);
+    ['wean', '이탈 가능', 'ECMO 제거'], ['fail', '이탈 실패', '유량 다시 올리고 재평가'], ['dmcs', 'LVAD·심장이식 평가', '단기 이탈 포기']]);
   else el.innerHTML = '<p style="margin:0"><button class="primary" id="next">다음 증례</button></p>';
 }
 
@@ -202,10 +195,8 @@ function renderAction() {
 function expected(st) {
   if (st === 1) return cs.pass1 ? 'start' : cs.type === 'long' ? 'dmcs' : 'hold';
   if (st === 3) return cs.pass2 ? 'wean' : cs.type === 'long' ? 'dmcs' : 'fail';
-  if (st === 4) return cs.risks.length ? 'surg' : 'perc';
 }
 function missed(st) {
-  if (st === 4) return [];
   const k = st === 1 ? 1 : 2;
   return (k === 1 ? S1 : S2).filter(r => !seen[k].has(r.k)).map(r => r.label);
 }
@@ -216,20 +207,20 @@ function decide(id) {
     return finish();
   }
   decisions.push({ st, id, exp: expected(st), miss: missed(st) });
-  if (id !== expected(st) || (st === 1 && id !== 'start') || (st === 3 && id !== 'wean') || st === 4) return finish();
-  stage = st === 1 ? 2 : 4;
+  if (st === 3 || id !== 'start') return finish();
+  stage = 2;
   render();
 }
 function finish() {
-  const ok = decisions.every(d => d.id === d.exp) && (decisions.at(-1).st === 4 || !(cs.pass1 && cs.pass2));
+  const ok = decisions.every(d => d.id === d.exp) && (decisions.at(-1).st === 3 || !cs.pass1);
   score.n++; if (ok) score.ok++;
-  stage = 5; render();
+  stage = 4; render();
   const crit = (rules, v, st) => `<table><thead><tr><th>${st === 1 ? '1단계: 현재 유량' : '2단계: 1 L/min, 1시간'}</th><th>값</th><th>기준</th><th></th></tr></thead><tbody>
     ${rules.map(r => { const t = r.test(r.k === 'vaso' ? cs : v); return `<tr><td>${r.label}</td><td>${r.show(r.k === 'vaso' ? cs : v)}</td><td class="muted">${r.need}</td><td class="${t ? 'ok' : 'bad'}">${t ? '충족' : '미충족'}</td></tr>`; }).join('')}</tbody></table>`;
   const notes = [];
   decisions.forEach(d => {
-    const name = { start: '유량 줄이기 시작', hold: '아직 아님', dmcs: 'LVAD·이식 평가', wean: '이탈 가능', fail: '이탈 실패', perc: '경피적 제거', surg: '수술적 제거' }[d.id];
-    const ename = { start: '유량 줄이기 시작', hold: '아직 아님', dmcs: 'LVAD·이식 평가', wean: '이탈 가능', fail: '이탈 실패', perc: '경피적 제거', surg: '수술적 제거' }[d.exp];
+    const name = { start: '유량 줄이기 시작', hold: '아직 아님', dmcs: 'LVAD·이식 평가', wean: '이탈 가능', fail: '이탈 실패' }[d.id];
+    const ename = { start: '유량 줄이기 시작', hold: '아직 아님', dmcs: 'LVAD·이식 평가', wean: '이탈 가능', fail: '이탈 실패' }[d.exp];
     notes.push(`${STAGES[d.st - 1]}: <b>${name}</b> ${d.id === d.exp ? '<span class="ok">✓</span>' : `<span class="bad">✗ (정답: ${ename})</span>`}`);
     if (d.miss?.length) notes.push(`<span class="warn">확인하지 않고 판단한 항목: ${d.miss.join(', ')}</span>`);
   });
@@ -237,8 +228,6 @@ function finish() {
   if (cs.trapOr && cs.s1.lac < 2 && cs.s1.svo2 <= 60) notes.push('SvO₂는 60% 이하였지만 젖산이 2 미만이라 1단계 산소 기준은 충족입니다 ("또는" 조건).');
   if (cs.fail2 === 'pp') notes.push('맥압이 25–30이면 1단계 기준(≥25)은 넘지만 1 L/min에서의 기준(>30)은 못 넘습니다.');
   if (cs.type === 'long') notes.push('ECMO 2주 넘게 이탈에 실패하면 지침은 durable MCS(LVAD)나 심장이식을 고려하도록 합니다.');
-  if (cs.pass1 && cs.pass2 && cs.risks.length) notes.push(`경피적 제거를 피해야 하는 요인: ${cs.risks.map(k => REMOVAL_RISKS[k]).join(', ')}`);
-  else if (cs.pass1 && cs.pass2) notes.push('제거를 어렵게 하는 요인이 없어 경피적 제거가 가능합니다.');
   const el = $('#result'); el.hidden = false;
   el.innerHTML = `<h2 style="color:var(--${ok ? 'ok' : 'bad'})">${ok ? '정답' : '오답'}</h2><ul>${notes.map(n => `<li>${n}</li>`).join('')}</ul>
     <div style="margin-top:12px">${crit(S1, cs.s1, 1)}</div>${cs.pass1 ? `<div style="margin-top:12px">${crit(S2, cs.s2, 2)}</div>` : ''}`;
@@ -268,7 +257,7 @@ if (location.hash === '#test') {
     const r = makeCase('ready'); A(r.pass1 && r.pass2, 'ready는 두 단계 통과');
     const a = makeCase('s1fail'); A(!a.pass1, 's1fail은 1단계 실패 ' + a.fail1);
     const b = makeCase('s2fail'); A(b.pass1 && !b.pass2, 's2fail은 1단계 통과·2단계 실패 ' + b.fail2);
-    const l = makeCase('long'); A(l.day >= 15 && !l.pass2 && l.risks.includes('long'), 'long');
+    const l = makeCase('long'); A(l.day >= 15 && l.pass1 && !l.pass2, 'long');
   }
   console.log('self-check 완료');
 }
